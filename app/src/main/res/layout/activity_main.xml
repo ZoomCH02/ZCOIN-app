@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121212"
+    android:id="@+id/rootLayout">
+
+    <!-- Верхние плашки -->
+    <LinearLayout
+        android:id="@+id/topPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="40dp"
+        android:orientation="horizontal"
+        android:padding="16dp">
+
+        <!-- Прибыль за клик -->
+        <TextView
+            android:id="@+id/profitPerClickText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/rounded_bg"
+            android:padding="12dp"
+            android:text="Прибыль/клик: 1"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"/>
+
+        <!-- Счётчик монет -->
+        <TextView
+            android:id="@+id/coinsText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/rounded_bg"
+            android:padding="12dp"
+            android:text="Монеты: 0"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
+    <!-- Добавить после верхней панели -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/upgrades_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:paddingTop="24dp"
+        android:paddingBottom="72dp"
+        android:clipToPadding="false"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="16dp"
+        android:overScrollMode="never"/>
+
+    <TextView
+        android:id="@+id/communityText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Скоро..."
+        android:textSize="24sp"
+        android:textColor="@color/gold"
+        android:visibility="gone"
+        android:layout_centerInParent="true"/>
+
+    <!-- Монета -->
+    <ImageButton
+        android:id="@+id/coinButton"
+        android:layout_width="252dp"
+        android:layout_height="249dp"
+        android:layout_centerInParent="true"
+        android:background="@null"
+        android:src="@drawable/coin" />
+
+    <!-- Нижнее меню -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNavigationView"
+        style="@style/AppTheme.BottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:background="#222222"
+        app:itemIconTint="@color/nav_color_selector"
+        app:itemTextColor="@color/nav_color_selector"
+        app:menu="@menu/bottom_nav_menu" />
+
+</RelativeLayout>
