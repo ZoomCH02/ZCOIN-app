@@ -3,32 +3,42 @@ package com.chuchkov.zcoin;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.annotation.SuppressLint;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.animation.AccelerateDecelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.chuchkov.zcoin.api.ApiClient;
+import com.chuchkov.zcoin.api.ZCoinApi;
+import com.chuchkov.zcoin.api.models.UpgradeResponse;
+import com.chuchkov.zcoin.api.models.UserResponse;
+import com.chuchkov.zcoin.api.models.requests.BuyUpgradeRequest;
+import com.chuchkov.zcoin.api.models.requests.UpdateUserRequest;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity implements UpgradeAdapter.OnBuyClickListener {
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
+public class MainActivity extends AppCompatActivity implements UpgradeAdapter.OnBuyClickListener {
     private int coins = 0;
     private int profitPerClick = 1;
     private TextView coinsText;
@@ -40,88 +50,220 @@ public class MainActivity extends AppCompatActivity implements UpgradeAdapter.On
     private List<UpgradeItem> upgrades = new ArrayList<>();
     private float lastTouchX;
     private float lastTouchY;
+    private TextView communityText;
 
     private static final String PREFS_NAME = "GamePrefs";
-    private static final String KEY_COINS = "coins";
-    private static final String KEY_PROFIT = "profit";
-    private static final String KEY_UPGRADE_PREFIX = "upgrade_";
-
-    private TextView communityText;
+    private String userId;
+    private ZCoinApi apiService;
+    private SharedPreferences sharedPrefs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Инициализация всех элементов
+        sharedPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        userId = sharedPrefs.getString("user_id", null);
+
+        if (userId == null) {
+            startActivity(new Intent(this, RegisterActivity.class));
+            finish();
+            return;
+        }
+
+        // Инициализация всех View элементов ДО их использования
         initViews();
         setupUpgrades();
-        loadGameData(); // Загружаем сохранённые данные
         setupNavigation();
-        restoreState(savedInstanceState);
 
-        // Обработчики событий
+        apiService = ApiClient.getApiService();
+        loadUserData();
+
         setupCoinButton();
     }
 
     private void initViews() {
+        // Основные элементы
+        rootLayout = findViewById(R.id.rootLayout);
+        topPanel = findViewById(R.id.topPanel);
         coinsText = findViewById(R.id.coinsText);
         profitText = findViewById(R.id.profitPerClickText);
         coinButton = findViewById(R.id.coinButton);
-        rootLayout = findViewById(R.id.rootLayout);
         upgradesRecycler = findViewById(R.id.upgrades_recycler);
-        topPanel = findViewById(R.id.topPanel);
+        communityText = findViewById(R.id.communityText);
+
+        // Проверка инициализации (для отладки)
+        if (communityText == null) {
+            Log.e("MainActivity", "communityText is null!");
+        }
+        if (upgradesRecycler == null) {
+            Log.e("MainActivity", "upgradesRecycler is null!");
+        }
     }
 
     private void setupUpgrades() {
         upgrades.clear();
-        upgrades.add(new UpgradeItem("Улучшение экипировки", R.drawable.weapon, 50, 2));
-        upgrades.add(new UpgradeItem("Оборона границ", R.drawable.pvo, 200, 5));
-        upgrades.add(new UpgradeItem("Поддержка РБ", R.drawable.bel, 1000, 10));
-        upgrades.add(new UpgradeItem("Поддержка КНДР", R.drawable.kndr, 5000, 20));
-        upgrades.add(new UpgradeItem("Поддержка КНР", R.drawable.kit, 20000, 50));
-        upgrades.add(new UpgradeItem("Создание БРИКС", R.drawable.briks, 100000, 100));
-        upgrades.add(new UpgradeItem("Интервью Такера Карлосона", R.drawable.tak, 500000, 200));
-        upgrades.add(new UpgradeItem("Политическое убежище для Канье Уэста", R.drawable.kanye, 2000000, 500));
-        upgrades.add(new UpgradeItem("Ухудщение репутации презедента США", R.drawable.biden, 10000000, 1000));
-        upgrades.add(new UpgradeItem("Трамп выигрывает выборы", R.drawable.biden_vs_trump, 50000000, 2000));
-        upgrades.add(new UpgradeItem("ZCOIN смещает биткоин", R.drawable.btc, 200000000, 5000));
-        upgrades.add(new UpgradeItem("Запуск физ. карт для оплаты криптой", R.drawable.zz, 700000000, 10000));
-        upgrades.add(new UpgradeItem("ZCOIN становится главной валютой во вселенной", R.drawable.ufo, 1000000000, 20000));
-
-        // После создания списка загружаем данные
-        loadGameData();
-
         upgradesRecycler.setLayoutManager(new LinearLayoutManager(this));
         upgradesRecycler.setAdapter(new UpgradeAdapter(upgrades, this));
     }
 
     private void setupNavigation() {
         BottomNavigationView navView = findViewById(R.id.bottomNavigationView);
-        communityText = findViewById(R.id.communityText);
-        navView.setOnNavigationItemSelectedListener(item -> {
-            if (item.getItemId() == R.id.navigation_upgrade) {
+
+        navView.setOnItemSelectedListener(item -> {
+            int itemId = item.getItemId();
+
+            if (itemId == R.id.navigation_upgrade) {
                 showUpgrades();
-            } else if(item.getItemId() == R.id.navigation_home) {
+                return true;
+            } else if (itemId == R.id.navigation_home) {
                 showMain();
-            } else if (item.getItemId() == R.id.navigation_community) {
+                return true;
+            } else if (itemId == R.id.navigation_community) {
                 showCommunity();
+                return true;
             }
-            return true;
+
+            return false;
+        });
+
+        // Установите начальный выбранный элемент (опционально)
+        navView.setSelectedItemId(R.id.navigation_home);
+    }
+
+    // Обновленные методы видимости с проверками
+    private void showCommunity() {
+        setViewVisibility(topPanel, View.GONE);
+        setViewVisibility(coinButton, View.GONE);
+        setViewVisibility(upgradesRecycler, View.GONE);
+        setViewVisibility(communityText, View.VISIBLE);
+    }
+
+    private void showMain() {
+        setViewVisibility(topPanel, View.VISIBLE);
+        setViewVisibility(coinButton, View.VISIBLE);
+        setViewVisibility(upgradesRecycler, View.GONE);
+        setViewVisibility(communityText, View.GONE);
+    }
+
+    private void showUpgrades() {
+        setViewVisibility(topPanel, View.GONE);
+        setViewVisibility(coinButton, View.GONE);
+        setViewVisibility(upgradesRecycler, View.VISIBLE);
+        setViewVisibility(communityText, View.GONE);
+    }
+
+    // Вспомогательный метод для безопасного изменения видимости
+    private void setViewVisibility(View view, int visibility) {
+        if (view != null) {
+            view.setVisibility(visibility);
+        } else {
+            Log.e("MainActivity", "Attempt to set visibility on null view");
+        }
+    }
+
+    private void updateUI() {
+        coinsText.setText(String.format("Монеты: %d", coins));
+        profitText.setText(String.format("Прибыль/клик: %d", profitPerClick));
+        upgradesRecycler.getAdapter().notifyDataSetChanged();
+    }
+
+    private void animateCoin() {
+        AnimatorSet animatorSet = new AnimatorSet();
+        animatorSet.playTogether(
+                ObjectAnimator.ofFloat(coinButton, "scaleX", 1f, 0.9f, 1.1f, 1f),
+                ObjectAnimator.ofFloat(coinButton, "scaleY", 1f, 0.9f, 1.1f, 1f)
+        );
+        animatorSet.setDuration(400);
+        animatorSet.setInterpolator(new AccelerateDecelerateInterpolator());
+        animatorSet.start();
+    }
+
+    private void loadUserData() {
+        apiService.getUser(userId).enqueue(new Callback<UserResponse>() {
+            @Override
+            public void onResponse(Call<UserResponse> call, Response<UserResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    handleUserResponse(response.body());
+                } else {
+                    Log.e("API_ERROR", "Code: " + response.code() + " Message: " + response.message());
+                    try {
+                        Log.e("API_ERROR", "Error body: " + response.errorBody().string());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(Call<UserResponse> call, Throwable t) {
+                Log.e("API_FAILURE", "Error: " + t.getMessage(), t);
+                t.printStackTrace();
+            }
         });
     }
 
-    private void restoreState(Bundle savedInstanceState) {
-        if (savedInstanceState != null) {
-            coins = savedInstanceState.getInt("coins");
-            profitPerClick = savedInstanceState.getInt("profit");
-            for (int i = 0; i < upgrades.size(); i++) {
-                upgrades.get(i).setPurchased(savedInstanceState.getBoolean("upgrade_" + i));
+    private void handleUserResponse(UserResponse response) {
+        coins = response.getCoins();
+        profitPerClick = response.getProfitPerClick();
+
+        // Проверяем, есть ли список улучшений в ответе
+        if (response.getUpgrades() != null) {
+            upgrades.clear();
+            for (UpgradeResponse upgrade : response.getUpgrades()) {
+                int imageResId = getResources().getIdentifier(upgrade.getImageRes(), "drawable", getPackageName());
+                UpgradeItem item = new UpgradeItem(
+                        upgrade.getTitle(),
+                        imageResId,
+                        upgrade.getCost(),
+                        upgrade.getProfit()
+                );
+                item.setPurchased(upgrade.isPurchased());
+                upgrades.add(item);
             }
         }
+
         updateUI();
     }
 
+    // Измените метод onBuyClick
+    @Override
+    public void onBuyClick(int position) {
+        UpgradeItem item = upgrades.get(position);
+        if (coins >= item.getCost() && !item.isPurchased()) {
+            apiService.buyUpgrade(userId, new BuyUpgradeRequest(position + 1))
+                    .enqueue(new Callback<UserResponse>() {
+                        @Override
+                        public void onResponse(Call<UserResponse> call, Response<UserResponse> response) {
+                            if (response.isSuccessful() && response.body() != null) {
+                                // 1. Обновляем монеты и доход
+                                coins = response.body().getCoins();
+                                profitPerClick = response.body().getProfitPerClick();
+
+                                // 2. Помечаем предмет как купленный
+                                item.setPurchased(true);
+
+                                // 3. Обновляем только эту карточку
+                                upgradesRecycler.getAdapter().notifyItemChanged(position);
+
+                                // 4. Обновляем UI (монеты и доход)
+                                updateUI();
+                            } else {
+                                Toast.makeText(MainActivity.this, "Ошибка покупки", Toast.LENGTH_SHORT).show();
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<UserResponse> call, Throwable t) {
+                            Toast.makeText(MainActivity.this, "Ошибка сети", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+        } else {
+            Toast.makeText(this, "Недостаточно монет!", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // Измените обработчик клика по монете
     @SuppressLint("ClickableViewAccessibility")
     private void setupCoinButton() {
         coinButton.setOnTouchListener(new View.OnTouchListener() {
@@ -140,26 +282,23 @@ public class MainActivity extends AppCompatActivity implements UpgradeAdapter.On
             updateUI();
             animateCoin();
             showProfitText();
+
+            apiService.updateUser(userId, new UpdateUserRequest(coins, profitPerClick))
+                    .enqueue(new Callback<Void>() {
+                        @Override
+                        public void onResponse(Call<Void> call, Response<Void> response) {
+                            if (!response.isSuccessful()) {
+                                Toast.makeText(MainActivity.this, "Ошибка сохранения", Toast.LENGTH_SHORT).show();
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<Void> call, Throwable t) {
+                            Toast.makeText(MainActivity.this, "Ошибка сети", Toast.LENGTH_SHORT).show();
+                        }
+                    });
         });
     }
-
-    private void updateUI() {
-        coinsText.setText(String.format("Монеты: %d", coins));
-        profitText.setText(String.format("Прибыль/клик: %d", profitPerClick));
-        upgradesRecycler.getAdapter().notifyDataSetChanged();
-    }
-
-    private void animateCoin() {
-        AnimatorSet animatorSet = new AnimatorSet();
-        animatorSet.playTogether(
-                ObjectAnimator.ofFloat(coinButton, "scaleX", 1f, 0.9f, 1.1f, 1f),
-                ObjectAnimator.ofFloat(coinButton, "scaleY", 1f, 0.9f, 1.1f, 1f)
-        );
-        animatorSet.setDuration(400);
-        animatorSet.setInterpolator(new AccelerateDecelerateInterpolator());
-        animatorSet.start(); // Вызываем start() отдельно
-    }
-
 
     private void showProfitText() {
         TextView profitTextView = new TextView(this);
@@ -195,101 +334,5 @@ public class MainActivity extends AppCompatActivity implements UpgradeAdapter.On
             @Override public void onAnimationCancel(android.animation.Animator animation) {}
             @Override public void onAnimationRepeat(android.animation.Animator animation) {}
         });
-    }
-
-    private void showCommunity() {
-        topPanel.setVisibility(View.GONE);
-        coinButton.setVisibility(View.GONE);
-        upgradesRecycler.setVisibility(View.GONE);
-        communityText.setVisibility(View.VISIBLE);
-    }
-
-    private void showMain() {
-        topPanel.setVisibility(View.VISIBLE);
-        coinButton.setVisibility(View.VISIBLE);
-        upgradesRecycler.setVisibility(View.GONE);
-        communityText.setVisibility(View.GONE);
-    }
-
-    private void showUpgrades() {
-        topPanel.setVisibility(View.GONE);
-        coinButton.setVisibility(View.GONE);
-        upgradesRecycler.setVisibility(View.VISIBLE);
-        communityText.setVisibility(View.GONE);
-    }
-
-    @Override
-    public void onBuyClick(int position) {
-        UpgradeItem item = upgrades.get(position);
-        if (coins >= item.getCost() && !item.isPurchased()) {
-            coins -= item.getCost();
-            profitPerClick += item.getProfit();
-            item.setPurchased(true);
-            updateUI();
-            saveGameData(); // Сохраняем сразу после изменения
-        } else {
-            Toast.makeText(this, "Недостаточно монет!", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    @Override
-    protected void onSaveInstanceState(@NonNull Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putInt("coins", coins);
-        outState.putInt("profit", profitPerClick);
-        for (int i = 0; i < upgrades.size(); i++) {
-            outState.putBoolean("upgrade_" + i, upgrades.get(i).isPurchased());
-        }
-    }
-
-    @Override
-    protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
-        super.onRestoreInstanceState(savedInstanceState);
-        coins = savedInstanceState.getInt("coins");
-        profitPerClick = savedInstanceState.getInt("profit");
-        for (int i = 0; i < upgrades.size(); i++) {
-            upgrades.get(i).setPurchased(savedInstanceState.getBoolean("upgrade_" + i));
-        }
-        updateUI();
-    }
-
-    private void saveGameData() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-
-        editor.putInt(KEY_COINS, coins);
-        editor.putInt(KEY_PROFIT, profitPerClick);
-
-        // Сохраняем статусы улучшений
-        for (int i = 0; i < upgrades.size(); i++) {
-            editor.putBoolean(KEY_UPGRADE_PREFIX + i, upgrades.get(i).isPurchased());
-        }
-
-        editor.apply();
-    }
-
-    private void loadGameData() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-
-        coins = prefs.getInt(KEY_COINS, 0);
-        profitPerClick = prefs.getInt(KEY_PROFIT, 1);
-
-        // Загружаем статусы улучшений
-        for (int i = 0; i < upgrades.size(); i++) {
-            boolean purchased = prefs.getBoolean(KEY_UPGRADE_PREFIX + i, false);
-            upgrades.get(i).setPurchased(purchased);
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        saveGameData();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        saveGameData();
     }
 }
